@@ -1,0 +1,4 @@
+(executable
+  (name retrace)
+  (libraries devkit extlib extunix)
+)
