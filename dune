@@ -1,4 +1,5 @@
 (executable
   (name retrace)
-  (libraries devkit extlib extunix)
+  (libraries containers devkit extlib extunix)
+  (preprocess (pps ppx_regexp))
 )
