@@ -151,20 +151,17 @@ let cmd_duration pids t rest =
   let until = List.find_map (function (_,Spawn _) -> None | (t, (Exec _| Exit)) -> Some t) rest in
   Option.default pids.last_event until -. t
 
-let print_exec ~tree pids =
+let iter_exec pids k =
   let module S = Set.Make(struct type t = entry let compare a b = if a.pid = b.pid then 0 else compare (a.first,a.pid) (b.first,b.pid) end) in
-  let rec visit parent depth set p =
+  let rec visit parents set p =
     let rec loop set = function
     | (_t, Spawn pid) :: rest ->
-       begin
-       (* if tree then indent depth; printfn "%d spawned %d" parent pid; *)
-       match Hashtbl.find_opt pids.pids pid with
+       begin match Hashtbl.find_opt pids.pids pid with
        | None -> Exn.fail "pid %d not found" pid
-       | Some x -> loop (visit p.pid (depth + 1) set x) rest
+       | Some x -> loop (visit (p.pid::parents) set x) rest
        end
-    | (_, Exec (cmd,args)) :: rest when tree -> indent depth; print_cmd cmd args; loop set rest
     | (t, Exec (cmd,args)) :: rest ->
-      printfn "%.3f\t%d\t%d\t%.3f\t%s" t parent p.pid (cmd_duration pids t rest) (show_cmd cmd args);
+      k t p.pid parents (cmd_duration pids t rest) cmd args;
       loop set rest
     | (_,Exit)::[] | [] -> set
     | (_,Exit)::_ -> Exn.fail "unexpected events after Exit for pid %d" p.pid
@@ -172,13 +169,21 @@ let print_exec ~tree pids =
     in
     loop (S.remove p set) p.events
   in
-  let rec loop depth set =
+  let rec loop set =
     match S.min_elt_opt set with
     | None -> ()
-    | Some p -> loop depth @@ visit 0 depth set p
+    | Some p -> loop @@ visit [] set p
   in
-  if not tree then print_endline @@ String.concat "\t" ["time";"parent";"pid";"duration";"cmd"];
-  pids.pids |> Hashtbl.to_seq_values |> S.of_seq |> loop 0
+  pids.pids |> Hashtbl.to_seq_values |> S.of_seq |> loop
+
+let print_tree pids = iter_exec pids (fun _ _ parents _ cmd args -> indent (List.length parents + 1); print_cmd cmd args)
+
+let print_exec pids =
+  print_endline @@ String.concat "\t" ["time";"parent";"pid";"duration";"cmd"];
+  iter_exec pids begin fun t pid parents duration cmd args ->
+  	let parent = match parents with p::_ -> p | [] -> 0 in
+   	printfn "%.3f\t%d\t%d\t%.3f\t%s" t parent pid duration (show_cmd cmd args);
+  end
 
 let parse_line () =
   let unfinished = Hashtbl.create 10 in
@@ -254,8 +259,8 @@ let main () =
   match Nix.args with
   | [] | ["time"] -> print_runtimes ~all:false @@ parse_in stdin
   | ["alltime"] -> print_runtimes ~all:true @@ parse_in stdin
-  | ["tree"] -> print_exec ~tree:true @@ parse_in stdin
-  | ["exec"] -> print_exec ~tree:false @@ parse_in stdin
+  | ["tree"] -> print_tree @@ parse_in stdin
+  | ["exec"] -> print_exec @@ parse_in stdin
   | ["parse"] -> input_events stdin |> Seq.map show_line |> Seq.iter print_endline
   | _ -> prerr_endline "Available commands : exec, time, alltime, tree"
 
