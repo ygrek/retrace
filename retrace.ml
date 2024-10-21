@@ -185,6 +185,17 @@ let print_exec pids =
    	printfn "%.3f\t%d\t%d\t%.3f\t%s" t parent pid duration (show_cmd cmd args);
   end
 
+let print_parallelism pids =
+  let spans = ref [] in
+  iter_exec pids (fun t _ _ duration _ _ -> tuck spans (t,duration));
+  let timeline = Array.create (1 + (int_of_float @@ ceil pids.last_event)) 0 in
+  !spans |> List.iter begin fun (t,duration) ->
+  	for i = int_of_float t to int_of_float @@ ceil (t +. duration) do
+    	timeline.(i) <- timeline.(i) + 1
+    done
+  end;
+  timeline |> Array.iteri (fun i n -> printfn "%d\t%d\t%s" i n (String.make n '#'))
+
 let parse_line () =
   let unfinished = Hashtbl.create 10 in
   fun line ->
@@ -252,7 +263,7 @@ let parse_in cin =
   if Hashtbl.length h = 0 then exit 1;
   let last = ref first_event in
   h |> Hashtbl.iter (fun _ v -> v.events <- List.rev_map (fun (time,x) -> let t = time -. first_event in last := max t !last; t,x) v.events);
-  eprintfn "total %d last %8.3fs" (Hashtbl.length h) !last;
+  eprintfn "total %d %8.3fs" (Hashtbl.length h) !last;
   { pids = h; last_event = !last }
 
 let main () =
@@ -261,6 +272,7 @@ let main () =
   | ["alltime"] -> print_runtimes ~all:true @@ parse_in stdin
   | ["tree"] -> print_tree @@ parse_in stdin
   | ["exec"] -> print_exec @@ parse_in stdin
+  | ["parallelism"] -> print_parallelism @@ parse_in stdin
   | ["parse"] -> input_events stdin |> Seq.map show_line |> Seq.iter print_endline
   | _ -> prerr_endline "Available commands : exec, time, alltime, tree"
 
